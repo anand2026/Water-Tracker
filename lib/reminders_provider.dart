@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'notification_service.dart';
+import 'notification_permission_provider.dart';
 
 class WaterReminder {
   final String id;
@@ -53,17 +54,19 @@ class WaterReminder {
   }
 
   /// Generate a safe notification ID that fits within 32-bit integer limits
-  /// Uses a hash-based approach to ensure uniqueness while staying within bounds
+  /// Uses a simple counter-based approach to ensure safe IDs
   static String generateSafeId() {
     final now = DateTime.now();
-    // Create a unique identifier based on time components
-    // Use seconds since epoch (smaller number) + milliseconds for uniqueness
-    final baseId = now.millisecondsSinceEpoch ~/ 1000; // Seconds since epoch
-    final millis = now.millisecondsSinceEpoch % 1000; // Just the milliseconds part
+    // Use a much smaller, safer approach
+    // Generate ID based on time components but keep it very small
+    final hour = now.hour;
+    final minute = now.minute;
+    final second = now.second;
+    final millisPart = (now.millisecond ~/ 100); // 0-9
 
-    // Combine with a simple hash to ensure we stay within 32-bit range
-    // Max 32-bit signed int: 2,147,483,647
-    final safeId = (baseId % 1000000) * 1000 + millis; // Keep under 1 billion
+    // Create a safe ID: HHMMSS + single digit (max 7 digits)
+    // This ensures we never exceed safe integer limits
+    final safeId = (hour * 10000) + (minute * 100) + second + millisPart;
 
     return safeId.toString();
   }
@@ -72,15 +75,17 @@ class WaterReminder {
 class RemindersProvider extends ChangeNotifier {
   List<WaterReminder> _reminders = [];
   bool _remindersEnabled = true;
-  bool _permissionsGranted = false;
 
   // Getters
   List<WaterReminder> get reminders => _reminders;
   bool get remindersEnabled => _remindersEnabled;
-  bool get permissionsGranted => _permissionsGranted;
+  bool get permissionsGranted => NotificationPermissionProvider.instance.isGranted;
 
   // Initialize with default reminders and load from storage
   void initialize() {
+    // Notify listeners immediately for fast UI rendering
+    notifyListeners();
+
     // Initialize asynchronously without blocking UI
     _initializeAsync();
   }
@@ -96,12 +101,8 @@ class RemindersProvider extends ChangeNotifier {
         await _saveReminders();
       }
 
-      await _checkPermissions();
-
-      // Start with empty reminders list - no default reminders
-
-      // Schedule notifications if enabled
-      if (_remindersEnabled && _permissionsGranted) {
+      // Schedule notifications if enabled and permissions are granted
+      if (_remindersEnabled && permissionsGranted) {
         await _scheduleAllReminders();
       }
 
@@ -139,43 +140,11 @@ class RemindersProvider extends ChangeNotifier {
   }
 
 
-  Future<void> _checkPermissions() async {
-    // First check current status
-    _permissionsGranted = await NotificationService.instance.checkPermissionStatus();
-
-    if (kDebugMode) {
-      print('Initial permission status: $_permissionsGranted');
-    }
-
-    // If not granted, try to request permissions
-    if (!_permissionsGranted) {
-      _permissionsGranted = await NotificationService.instance.requestPermissions();
-
-      if (kDebugMode) {
-        print('After permission request: $_permissionsGranted');
-      }
-    }
-
-    // Also check battery optimization
-    if (_permissionsGranted) {
-      final batteryOptimized = await NotificationService.instance.isBatteryOptimizationIgnored();
-      if (kDebugMode) {
-        print('Battery optimization ignored: $batteryOptimized');
-        if (!batteryOptimized) {
-          print('⚠️ WARNING: Battery optimization may prevent notifications!');
-        }
-      }
-    }
-
-    if (kDebugMode) {
-      print('Final notification permissions granted: $_permissionsGranted');
-    }
-  }
 
   Future<void> setRemindersEnabled(bool enabled) async {
     _remindersEnabled = enabled;
 
-    if (enabled && _permissionsGranted) {
+    if (enabled && permissionsGranted) {
       await _scheduleAllReminders();
     } else {
       await NotificationService.instance.cancelAllNotifications();
@@ -211,7 +180,7 @@ class RemindersProvider extends ChangeNotifier {
 
   void _addReminderBackground(WaterReminder reminder) async {
     try {
-      if (_remindersEnabled && _permissionsGranted && reminder.isEnabled) {
+      if (_remindersEnabled && permissionsGranted && reminder.isEnabled) {
         await _scheduleReminder(reminder);
       }
       await _saveReminders();
@@ -227,11 +196,18 @@ class RemindersProvider extends ChangeNotifier {
     _reminders[index] = newReminder;
     _sortReminders();
 
-    // Cancel old notification
-    await NotificationService.instance.cancelNotification(int.parse(oldReminder.id));
+    // Cancel old notification with safety check
+    try {
+      final oldId = int.parse(oldReminder.id);
+      await NotificationService.instance.cancelNotification(oldId);
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error canceling old notification: $e');
+      }
+    }
 
     // Schedule new notification if enabled
-    if (_remindersEnabled && _permissionsGranted && newReminder.isEnabled) {
+    if (_remindersEnabled && permissionsGranted && newReminder.isEnabled) {
       await _scheduleReminder(newReminder);
     }
 
@@ -252,10 +228,17 @@ class RemindersProvider extends ChangeNotifier {
 
   void _toggleReminderBackground(WaterReminder reminder, bool enabled) async {
     try {
-      if (enabled && _remindersEnabled && _permissionsGranted) {
+      if (enabled && _remindersEnabled && permissionsGranted) {
         await _scheduleReminder(reminder.copyWith(isEnabled: enabled));
       } else {
-        await NotificationService.instance.cancelNotification(int.parse(reminder.id));
+        try {
+          final reminderId = int.parse(reminder.id);
+          await NotificationService.instance.cancelNotification(reminderId);
+        } catch (e) {
+          if (kDebugMode) {
+            print('❌ Error canceling toggle notification: $e');
+          }
+        }
       }
       await _saveReminders();
     } catch (e) {
@@ -279,7 +262,14 @@ class RemindersProvider extends ChangeNotifier {
   void _deleteReminderBackground(WaterReminder reminder) async {
     try {
       // Cancel notification in background - if this fails, that's okay
-      await NotificationService.instance.cancelNotification(int.parse(reminder.id));
+      try {
+        final reminderId = int.parse(reminder.id);
+        await NotificationService.instance.cancelNotification(reminderId);
+      } catch (parseError) {
+        if (kDebugMode) {
+          print('❌ Error parsing notification ID for deletion: $parseError');
+        }
+      }
 
       // Save changes
       await _saveReminders();
@@ -330,7 +320,26 @@ class RemindersProvider extends ChangeNotifier {
 
   Future<void> _scheduleReminder(WaterReminder reminder) async {
     try {
-      final notificationId = int.parse(reminder.id);
+      // Parse notification ID with safety checks
+      int notificationId;
+      try {
+        notificationId = int.parse(reminder.id);
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ Invalid notification ID format: ${reminder.id}, generating new ID');
+        }
+        // Generate a simple fallback ID if parsing fails
+        notificationId = (reminder.time.hour * 100) + reminder.time.minute;
+      }
+
+      // Ensure ID is within safe bounds (Android notification IDs must be positive 32-bit integers)
+      if (notificationId <= 0 || notificationId > 2147483647) {
+        notificationId = (reminder.time.hour * 100) + reminder.time.minute;
+        if (kDebugMode) {
+          print('❌ Notification ID out of bounds, using fallback: $notificationId');
+        }
+      }
+
       final message = NotificationService.getRandomMessage();
 
       if (kDebugMode) {
@@ -353,6 +362,7 @@ class RemindersProvider extends ChangeNotifier {
       if (kDebugMode) {
         print('❌ Error scheduling reminder: $e');
       }
+      // Don't rethrow to prevent app crashes
     }
   }
 
@@ -402,17 +412,17 @@ class RemindersProvider extends ChangeNotifier {
 
   // Test notification (for debugging)
   Future<void> testNotification() async {
-    if (!_permissionsGranted) {
-      await _checkPermissions();
-    }
-
-    if (_permissionsGranted) {
+    if (permissionsGranted) {
       await NotificationService.instance.showInstantNotification(
         id: 999,
         title: 'Test Notification',
         body: '💧 This is a test water reminder!',
         payload: 'test',
       );
+    } else {
+      if (kDebugMode) {
+        print('Cannot test notification: permissions not granted');
+      }
     }
   }
 

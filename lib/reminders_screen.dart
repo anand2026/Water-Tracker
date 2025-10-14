@@ -2,14 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'reminders_provider.dart';
+import 'notification_permission_provider.dart';
 
 class RemindersScreen extends StatelessWidget {
   const RemindersScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<RemindersProvider>(
-      builder: (context, remindersProvider, child) {
+    return Consumer2<RemindersProvider, NotificationPermissionProvider>(
+      builder: (context, remindersProvider, permissionProvider, child) {
         return Scaffold(
           backgroundColor: Theme.of(context).scaffoldBackgroundColor,
           appBar: AppBar(
@@ -76,20 +77,20 @@ class RemindersScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            remindersProvider.permissionsGranted
+                            permissionProvider.isGranted
                                 ? 'Get notified to stay hydrated'
                                 : 'Notification permissions required',
                             style: TextStyle(
-                              color: remindersProvider.permissionsGranted
+                              color: permissionProvider.isGranted
                                   ? Colors.grey[600]
                                   : Colors.red,
                               fontSize: 14,
                             ),
                           ),
-                          if (!remindersProvider.permissionsGranted)
+                          if (!permissionProvider.isGranted)
                             TextButton(
-                              onPressed: () {
-                                remindersProvider.initialize();
+                              onPressed: () async {
+                                await permissionProvider.requestPermissions();
                               },
                               style: TextButton.styleFrom(
                                 padding: EdgeInsets.zero,
@@ -108,7 +109,7 @@ class RemindersScreen extends StatelessWidget {
                     ),
                     Switch(
                       value: remindersProvider.remindersEnabled,
-                      onChanged: remindersProvider.permissionsGranted
+                      onChanged: permissionProvider.isGranted
                           ? (value) async {
                               await remindersProvider.setRemindersEnabled(value);
                               if (context.mounted) {

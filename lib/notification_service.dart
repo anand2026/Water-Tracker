@@ -70,10 +70,7 @@ class NotificationService {
 
       _initialized = true;
 
-      // Auto-request permissions if not yet requested (after setting initialized = true)
-      if (!_hasRequestedPermissions) {
-        await requestPermissions();
-      }
+      // Don't auto-request permissions - let user trigger it via enable button
 
       if (kDebugMode) {
         print('NotificationService initialized successfully');
@@ -117,7 +114,7 @@ class NotificationService {
       // Request permissions for different platforms
       if (defaultTargetPlatform == TargetPlatform.android) {
         if (kDebugMode) {
-          print('Requesting Android notification permissions...');
+          print('🔔 Requesting Android notification permissions...');
         }
 
         // For Android 13+ (API 33+)
@@ -126,55 +123,48 @@ class NotificationService {
 
         if (androidImplementation != null) {
           if (kDebugMode) {
-            print('Android implementation found');
+            print('🔔 Android implementation found - directly requesting permissions');
           }
 
-          // Check if permissions are already granted
+          // First check current status
           try {
-            granted = await androidImplementation.areNotificationsEnabled();
+            final currentStatus = await androidImplementation.areNotificationsEnabled();
             if (kDebugMode) {
-              print('Current notification status: $granted');
+              print('🔔 Current notification status before request: $currentStatus');
             }
           } catch (e) {
             if (kDebugMode) {
-              print('Error checking notification status: $e');
+              print('🔔 Could not check current status: $e');
             }
           }
 
+          try {
+            // Always request notification permissions directly - this shows the popup
+            if (kDebugMode) {
+              print('🔔 Calling requestNotificationsPermission() - this should show dialog');
+            }
+            granted = await androidImplementation.requestNotificationsPermission();
+
+            if (kDebugMode) {
+              print('🔔 Permission request completed. Result: $granted');
+            }
+          } catch (e) {
+            if (kDebugMode) {
+              print('🔔 Error during permission request: $e');
+            }
+            granted = false;
+          }
+
+          // If still not granted, show explanation
           if (granted == null || !granted) {
             if (kDebugMode) {
-              print('Requesting notification permissions from user...');
-            }
-
-            try {
-              // Request notification permissions - this is critical for Android 13+
-              granted = await androidImplementation.requestNotificationsPermission();
-
-              if (kDebugMode) {
-                print('Permission request completed. Result: $granted');
-              }
-            } catch (e) {
-              if (kDebugMode) {
-                print('Error during permission request: $e');
-              }
-              granted = false;
-            }
-
-            // If still not granted, show explanation
-            if (granted == null || !granted) {
-              if (kDebugMode) {
-                print('❌ Notification permission denied by user.');
-                print('📱 User needs to manually enable in device settings:');
-                print('   Settings > Apps > Water Tracker > Notifications > Allow notifications');
-              }
-            } else {
-              if (kDebugMode) {
-                print('✅ Notification permission granted!');
-              }
+              print('❌ Notification permission denied by user.');
+              print('📱 User needs to manually enable in device settings:');
+              print('   Settings > Apps > Water Tracker > Notifications > Allow notifications');
             }
           } else {
             if (kDebugMode) {
-              print('✅ Notifications already enabled');
+              print('✅ Notification permission granted!');
             }
           }
 
@@ -525,6 +515,114 @@ class NotificationService {
   Future<bool> retryPermissionRequest() async {
     _hasRequestedPermissions = false;
     return await requestPermissions();
+  }
+
+  // Method to force permission request without clearing app data
+  Future<bool> forcePermissionRequest() async {
+    if (kDebugMode) {
+      print('🔔 Force requesting notification permissions...');
+    }
+
+    // Reset permission tracking state only
+    _hasRequestedPermissions = false;
+    _permissionsGranted = false;
+
+    // Clear only notification permission preferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('notification_permissions_granted');
+    await prefs.remove('notification_permissions_requested');
+
+    return await requestPermissions();
+  }
+
+  // Method to open app settings directly when permission dialog can't be shown
+  Future<bool> openNotificationSettings() async {
+    if (kDebugMode) {
+      print('🔔 Opening notification settings since dialog cannot be shown when already granted');
+    }
+
+    try {
+      // Try to open app notification settings directly
+      bool success = await openAppNotificationSettings();
+
+      if (!success) {
+        // Fallback to general app settings
+        success = await openAppSettingsAlternative();
+      }
+
+      return success;
+    } catch (e) {
+      if (kDebugMode) {
+        print('🔔 Error opening notification settings: $e');
+      }
+      return false;
+    }
+  }
+
+  // Direct method to request notification permission popup with smart fallback
+  Future<bool> requestNotificationPermissionDirectly() async {
+    if (kDebugMode) {
+      print('🔔 Direct notification permission request with smart fallback');
+    }
+
+    try {
+      final androidImplementation = _notifications
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+
+      if (androidImplementation != null) {
+        // First check if we're already enabled
+        final currentStatus = await androidImplementation.areNotificationsEnabled();
+        if (currentStatus == true) {
+          if (kDebugMode) {
+            print('🔔 Notifications already enabled!');
+          }
+          _permissionsGranted = true;
+          _hasRequestedPermissions = true;
+          await _savePermissionStatus();
+          return true;
+        }
+
+        if (kDebugMode) {
+          print('🔔 Calling requestNotificationsPermission() - attempting to show popup');
+        }
+
+        final granted = await androidImplementation.requestNotificationsPermission();
+
+        if (kDebugMode) {
+          print('🔔 Direct permission result: $granted');
+        }
+
+        // If permission request returned false, just return false
+        // This happens either when user clicks "Don't allow" or Android blocks the popup
+        if (granted == false) {
+          if (kDebugMode) {
+            print('🔔 Permission denied or blocked - dialog dismissed');
+          }
+
+          // Don't open settings automatically - just return false
+          return false;
+        }
+
+        // Update internal state for successful grants
+        _permissionsGranted = granted ?? false;
+        _hasRequestedPermissions = true;
+
+        // Save permission status to storage
+        await _savePermissionStatus();
+
+        if (kDebugMode) {
+          print('🔔 Updated internal permission state: $_permissionsGranted');
+        }
+
+        return _permissionsGranted;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('🔔 Error in direct permission request: $e');
+      }
+    }
+
+    return false;
   }
 
   // Create notification channel explicitly (Android 8.0+)

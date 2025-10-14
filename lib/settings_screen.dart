@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
 import 'package:share_plus/share_plus.dart';
 import 'package:csv/csv.dart';
 import 'package:path_provider/path_provider.dart';
@@ -11,9 +12,16 @@ import 'package:intl/intl.dart';
 import 'settings_provider.dart';
 import 'water_data_provider.dart';
 import 'notification_service.dart';
+import 'notification_permission_provider.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
@@ -504,10 +512,9 @@ class SettingsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
 
-            FutureBuilder<bool>(
-              future: _getNotificationPermissionStatus(),
-              builder: (context, snapshot) {
-                final isGranted = snapshot.data ?? false;
+            Consumer<NotificationPermissionProvider>(
+              builder: (context, permissionProvider, child) {
+                final isGranted = permissionProvider.isGranted;
 
                 return Row(
                   children: [
@@ -543,15 +550,6 @@ class SettingsScreen extends StatelessWidget {
                           foregroundColor: Colors.white,
                         ),
                         child: const Text('Enable'),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: () => _openNotificationSettings(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                        ),
-                        child: const Text('Open Settings'),
                       ),
                     ],
                   ],
@@ -627,32 +625,44 @@ class SettingsScreen extends StatelessWidget {
 
   Future<void> _requestNotificationPermissions(BuildContext context) async {
     try {
-      final granted = await NotificationService.instance.retryPermissionRequest();
+      if (kDebugMode) {
+        print('🔔 Enable button clicked - opening notification settings directly');
+      }
+
+      // Directly open notification settings instead of showing popup
+      final settingsOpened = await NotificationService.instance.openNotificationSettings();
 
       if (context.mounted) {
-        if (granted) {
+        if (settingsOpened) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Notification permissions granted!'),
-              backgroundColor: Colors.green,
+              content: Text('📱 Please enable notifications in the settings that opened, then return to the app'),
+              backgroundColor: Colors.blue,
+              duration: Duration(seconds: 4),
             ),
           );
         } else {
-          // Show more detailed instructions
-          _showNotificationInstructions(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('❌ Could not open settings. Please go to Settings > Apps > Water Tracker > Notifications manually'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
         }
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error requesting permissions: $e'),
+            content: Text('Error: $e'),
             backgroundColor: Colors.red,
           ),
         );
       }
     }
   }
+
 
   void _showNotificationInstructions(BuildContext context) {
     showDialog(
@@ -709,49 +719,6 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _openNotificationSettings(BuildContext context) async {
-    try {
-      final success = await NotificationService.instance.openAppNotificationSettings();
-
-      if (context.mounted) {
-        if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Opened notification settings! Enable notifications and return to the app.'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 4),
-            ),
-          );
-        } else {
-          // Try alternative method
-          final altSuccess = await NotificationService.instance.openAppSettingsAlternative();
-          if (context.mounted) {
-            if (altSuccess) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Opened app settings! Find Notifications and enable them.'),
-                  backgroundColor: Colors.orange,
-                  duration: Duration(seconds: 4),
-                ),
-              );
-            } else {
-              _showNotificationInstructions(context);
-            }
-          }
-        }
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Could not open settings: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        _showNotificationInstructions(context);
-      }
-    }
-  }
 
   Future<void> _testNotification(BuildContext context) async {
     try {
@@ -979,6 +946,18 @@ class SettingsScreen extends StatelessWidget {
                 child: const Text('Reset Permission Tracking'),
               ),
             ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => _resetNotificationPermissionsOnly(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.purple,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Reset Notification Permissions Only'),
+              ),
+            ),
           ],
         ),
       ),
@@ -1003,6 +982,39 @@ class SettingsScreen extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error resetting: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _resetNotificationPermissionsOnly(BuildContext context) async {
+    try {
+      final result = await NotificationService.instance.forcePermissionRequest();
+
+      if (context.mounted) {
+        if (result) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Notification permissions reset and granted!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Notification permissions reset. Permission request completed.'),
+              backgroundColor: Colors.purple,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error resetting notification permissions: $e'),
             backgroundColor: Colors.red,
           ),
         );
