@@ -566,52 +566,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Test and troubleshooting buttons
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () => _testNotification(context),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      foregroundColor: Colors.white,
+            // Test buttons - only show in debug builds
+            if (kDebugMode) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _testNotification(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('Test Now'),
                     ),
-                    child: const Text('Test Now'),
                   ),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () => _testScheduledNotification(context),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.purple,
-                      foregroundColor: Colors.white,
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _testScheduledNotification(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('Test 10s'),
                     ),
-                    child: const Text('Test 10s'),
                   ),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () => _testQuickScheduled(context),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _testQuickScheduled(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('Test 5s'),
                     ),
-                    child: const Text('Test 5s'),
                   ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+
+            // Help button - always show
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => _showTroubleshootingGuide(context),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF42A5F5),
                 ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => _showTroubleshootingGuide(context),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF42A5F5),
-                    ),
-                    child: const Text('Help'),
-                  ),
-                ),
-              ],
+                child: const Text('Troubleshooting Help'),
+              ),
             ),
           ],
         ),
