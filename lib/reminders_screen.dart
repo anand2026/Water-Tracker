@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'reminders_provider.dart';
 import 'notification_permission_provider.dart';
+import 'models/water_reminder.dart';
 
 class RemindersScreen extends StatelessWidget {
   const RemindersScreen({super.key});
@@ -43,99 +44,99 @@ class RemindersScreen extends StatelessWidget {
                 ),
             ],
           ),
-          body: Column(
-            children: [
-              // Master Toggle Section
-              Container(
-                margin: const EdgeInsets.all(16),
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Theme.of(context).shadowColor.withValues(alpha: 0.1),
-                      spreadRadius: 1,
-                      blurRadius: 10,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Water Reminders',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: const Color(0xFF1565C0),
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            permissionProvider.isGranted
-                                ? 'Get notified to stay hydrated'
-                                : 'Notification permissions required',
-                            style: TextStyle(
-                              color: permissionProvider.isGranted
-                                  ? Colors.grey[600]
-                                  : Colors.red,
-                              fontSize: 14,
-                            ),
-                          ),
-                          if (!permissionProvider.isGranted)
-                            TextButton(
-                              onPressed: () async {
-                                await permissionProvider.requestPermissions();
-                              },
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                minimumSize: const Size(0, 30),
+          body: SingleChildScrollView(
+            child: Column(
+              children: [
+                // Master Toggle Section
+                Container(
+                  margin: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Theme.of(context).shadowColor.withValues(alpha: 0.1),
+                        spreadRadius: 1,
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Water Reminders',
+                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF1565C0),
                               ),
-                              child: const Text(
-                                'Grant permissions',
-                                style: TextStyle(
-                                  color: Color(0xFF42A5F5),
-                                  fontSize: 12,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              permissionProvider.isGranted
+                                  ? 'Get notified to stay hydrated'
+                                  : 'Notification permissions required',
+                              style: TextStyle(
+                                color: permissionProvider.isGranted
+                                    ? Colors.grey[600]
+                                    : Colors.red,
+                                fontSize: 14,
+                              ),
+                            ),
+                            if (!permissionProvider.isGranted)
+                              TextButton(
+                                onPressed: () async {
+                                  await permissionProvider.requestPermissions();
+                                },
+                                style: TextButton.styleFrom(
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: const Size(0, 30),
+                                ),
+                                child: const Text(
+                                  'Grant permissions',
+                                  style: TextStyle(
+                                    color: Color(0xFF42A5F5),
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    Switch(
-                      value: remindersProvider.remindersEnabled,
-                      onChanged: permissionProvider.isGranted
-                          ? (value) async {
-                              await remindersProvider.setRemindersEnabled(value);
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      value
-                                          ? 'Water reminders enabled'
-                                          : 'Water reminders disabled',
+                      Switch(
+                        value: remindersProvider.remindersEnabled,
+                        onChanged: permissionProvider.isGranted
+                            ? (value) async {
+                                await remindersProvider.setRemindersEnabled(value);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        value
+                                            ? 'Water reminders enabled'
+                                            : 'Water reminders disabled',
+                                      ),
+                                      backgroundColor: const Color(0xFF42A5F5),
                                     ),
-                                    backgroundColor: const Color(0xFF42A5F5),
-                                  ),
-                                );
+                                  );
+                                }
                               }
-                            }
-                          : null,
-                      activeThumbColor: const Color(0xFF42A5F5),
-                      activeTrackColor: const Color(0xFF42A5F5).withValues(alpha: 0.3),
-                    ),
-                  ],
+                            : null,
+                        activeThumbColor: const Color(0xFF42A5F5),
+                        activeTrackColor: const Color(0xFF42A5F5).withValues(alpha: 0.3),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
 
-              // Reminders List
-              Expanded(
-                child: Container(
+                // Reminders List
+                Container(
                   margin: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.surface,
@@ -151,6 +152,7 @@ class RemindersScreen extends StatelessWidget {
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Padding(
                         padding: const EdgeInsets.all(20),
@@ -162,9 +164,10 @@ class RemindersScreen extends StatelessWidget {
                           ),
                         ),
                       ),
-                      Expanded(
-                        child: remindersProvider.reminders.isEmpty
-                            ? Center(
+                      remindersProvider.reminders.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 40),
+                              child: Center(
                                 child: Text(
                                   'No reminders set',
                                   style: TextStyle(
@@ -172,53 +175,56 @@ class RemindersScreen extends StatelessWidget {
                                     fontSize: 16,
                                   ),
                                 ),
-                              )
-                            : ListView.builder(
-                                padding: const EdgeInsets.symmetric(horizontal: 20),
-                                itemCount: remindersProvider.reminders.length,
-                                itemBuilder: (context, index) {
-                                  final reminder = remindersProvider.reminders[index];
-                                  return _buildReminderItem(context, reminder, index, remindersProvider);
-                                },
                               ),
-                      ),
+                            )
+                          : ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              itemCount: remindersProvider.reminders.length,
+                              itemBuilder: (context, index) {
+                                final reminder = remindersProvider.reminders[index];
+                                return _buildReminderItem(context, reminder, index, remindersProvider);
+                              },
+                            ),
+                      const SizedBox(height: 20),
                     ],
                   ),
                 ),
-              ),
 
-              // Add Reminder Button
-              Container(
-                margin: const EdgeInsets.all(16),
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => _showAddReminderDialog(context, remindersProvider),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF42A5F5),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 2,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.add, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Add Reminder',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                        ),
+                // Add Reminder Button
+                Container(
+                  margin: const EdgeInsets.all(16),
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => _showAddReminderDialog(context, remindersProvider),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF42A5F5),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    ],
+                      elevation: 2,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.add, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Add Reminder',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },

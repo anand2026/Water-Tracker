@@ -8,6 +8,7 @@ class WaterReminder {
   final DateTime? lastTriggered;
   final int snoozeCount;
   final List<String> activeDays; // ['mon', 'tue', 'wed', etc.]
+  final String frequency; // Add frequency property for compatibility
 
   const WaterReminder({
     required this.id,
@@ -16,6 +17,7 @@ class WaterReminder {
     this.lastTriggered,
     this.snoozeCount = 0,
     this.activeDays = const ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+    this.frequency = 'Every day', // Default frequency
   });
 
   /// Create a copy with modified properties
@@ -26,6 +28,7 @@ class WaterReminder {
     DateTime? lastTriggered,
     int? snoozeCount,
     List<String>? activeDays,
+    String? frequency,
   }) {
     return WaterReminder(
       id: id ?? this.id,
@@ -34,6 +37,7 @@ class WaterReminder {
       lastTriggered: lastTriggered ?? this.lastTriggered,
       snoozeCount: snoozeCount ?? this.snoozeCount,
       activeDays: activeDays ?? this.activeDays,
+      frequency: frequency ?? this.frequency,
     );
   }
 
@@ -47,6 +51,7 @@ class WaterReminder {
       'lastTriggered': lastTriggered?.millisecondsSinceEpoch,
       'snoozeCount': snoozeCount,
       'activeDays': activeDays,
+      'frequency': frequency,
     };
   }
 
@@ -65,6 +70,7 @@ class WaterReminder {
       snoozeCount: json['snoozeCount'] as int? ?? 0,
       activeDays: List<String>.from(json['activeDays'] as List? ??
           ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']),
+      frequency: json['frequency'] as String? ?? 'Every day',
     );
   }
 
@@ -128,6 +134,24 @@ class WaterReminder {
   @override
   String toString() {
     return 'WaterReminder{id: $id, time: ${time.format}, isEnabled: $isEnabled}';
+  }
+
+  /// Generate a safe notification ID that fits within 32-bit integer limits
+  /// Uses a simple counter-based approach to ensure safe IDs
+  static String generateSafeId() {
+    final now = DateTime.now();
+    // Use a much smaller, safer approach
+    // Generate ID based on time components but keep it very small
+    final hour = now.hour;
+    final minute = now.minute;
+    final second = now.second;
+    final millisPart = (now.millisecond ~/ 100); // 0-9
+
+    // Create a safe ID: HHMMSS + single digit (max 7 digits)
+    // This ensures we never exceed safe integer limits
+    final safeId = (hour * 10000) + (minute * 100) + second + millisPart;
+
+    return safeId.toString();
   }
 }
 

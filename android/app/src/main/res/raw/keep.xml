@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/*,@mipmap/*,@raw/*">
+
+    <!-- Keep all drawable resources for notifications -->
+    <item tools:keep="@drawable/ic_launcher" />
+    <item tools:keep="@drawable/launch_background" />
+
+    <!-- Keep all mipmap resources for app icons -->
+    <item tools:keep="@mipmap/ic_launcher" />
+
+    <!-- Keep all notification-related resources -->
+    <item tools:keep="@android:drawable/ic_notification_overlay" />
+    <item tools:keep="@android:drawable/sym_def_app_icon" />
+
+    <!-- Keep string resources that might be used by notifications -->
+    <item tools:keep="@string/app_name" />
+
+</resources>

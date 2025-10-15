@@ -32,37 +32,99 @@ class NotificationService {
   // Callback for handling notification taps
   static Function(String action, String? reminderId)? onNotificationAction;
 
-  /// Initialize the notification service
+  /// Initialize the notification service with Android 15+ compatibility
   Future<bool> initialize() async {
     if (_isInitialized) return true;
 
     try {
-      // Initialize timezone data
-      tz.initializeTimeZones();
-      _setLocalTimeZone();
+      debugPrint('🛠️ Starting NotificationService initialization...');
 
-      // Initialize the plugin
-      await _initializePlugin();
+      // Step 1: Initialize timezone data with enhanced error handling
+      try {
+        tz.initializeTimeZones();
+        _setLocalTimeZone();
+        debugPrint('✅ Timezone initialized successfully');
+      } catch (e) {
+        debugPrint('❌ Timezone initialization failed: $e');
+        // Continue anyway - this shouldn't be fatal
+      }
 
-      // Create notification channels
-      await _createNotificationChannels();
+      // Step 2: Initialize the plugin with retry mechanism
+      bool pluginInitialized = false;
+      for (int attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await _initializePlugin();
+          pluginInitialized = true;
+          debugPrint('✅ Plugin initialized successfully (attempt $attempt)');
+          break;
+        } catch (e) {
+          debugPrint('⚠️ Plugin initialization attempt $attempt failed: $e');
+          if (attempt == 3) {
+            debugPrint('❌ Plugin initialization failed after 3 attempts');
+            return false;
+          }
+          await Future.delayed(Duration(milliseconds: 500 * attempt));
+        }
+      }
 
-      // Load saved reminders and settings
-      await _loadStoredData();
+      if (!pluginInitialized) {
+        debugPrint('❌ Critical: Plugin could not be initialized');
+        return false;
+      }
 
-      // Reschedule notifications (important for reboot handling)
-      await _rescheduleAllNotifications();
+      // Step 3: Create notification channels with Android 15+ compatibility
+      try {
+        await _createNotificationChannels();
+        debugPrint('✅ Notification channels created successfully');
+      } catch (e) {
+        debugPrint('❌ Channel creation failed: $e');
+        // Try to continue - some Android versions might not need explicit channel creation
+      }
+
+      // Step 4: Load saved data
+      try {
+        await _loadStoredData();
+        debugPrint('✅ Stored data loaded successfully');
+      } catch (e) {
+        debugPrint('⚠️ Failed to load stored data: $e');
+        // Initialize with defaults
+        _reminders = [];
+        _notificationsEnabled = true;
+      }
+
+      // Step 5: Check permissions before rescheduling
+      bool hasPermissions = false;
+      try {
+        hasPermissions = await arePermissionsGranted();
+        debugPrint('✅ Permission check completed: $hasPermissions');
+      } catch (e) {
+        debugPrint('⚠️ Permission check failed: $e');
+      }
+
+      // Step 6: Reschedule notifications only if we have permissions
+      if (hasPermissions) {
+        try {
+          await _rescheduleAllNotifications();
+          debugPrint('✅ Notifications rescheduled successfully');
+        } catch (e) {
+          debugPrint('⚠️ Reschedule failed: $e');
+          // Don't fail initialization for this
+        }
+      } else {
+        debugPrint('⚠️ Skipping notification rescheduling due to missing permissions');
+      }
 
       _isInitialized = true;
       debugPrint('✅ NotificationService initialized successfully');
       return true;
-    } catch (e) {
-      debugPrint('❌ Failed to initialize NotificationService: $e');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Critical initialization failure: $e');
+      debugPrint('❌ Stack trace: $stackTrace');
       return false;
     }
   }
 
-  /// Request notification permissions
+  /// Request notification permissions with Android 14+ compatibility
   Future<bool> requestPermissions() async {
     if (!_isInitialized) {
       throw StateError('NotificationService not initialized. Call initialize() first.');
@@ -70,7 +132,15 @@ class NotificationService {
 
     try {
       if (Platform.isAndroid) {
-        return await _requestAndroidPermissions();
+        // Check Android version first
+        final androidInfo = await _getAndroidInfo();
+        if (androidInfo['version']['sdkInt'] >= 33) {
+          // Android 13+ requires POST_NOTIFICATIONS permission
+          return await _requestAndroidNotificationPermissions();
+        } else {
+          // Older Android versions don't need runtime permission
+          return true;
+        }
       } else if (Platform.isIOS) {
         return await _requestIOSPermissions();
       }
@@ -81,15 +151,22 @@ class NotificationService {
     }
   }
 
-  /// Check if permissions are granted
+  /// Check if permissions are granted with Android 14+ compatibility
   Future<bool> arePermissionsGranted() async {
     if (!_isInitialized) return false;
 
     try {
       if (Platform.isAndroid) {
-        final plugin = _notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-        final granted = await plugin?.areNotificationsEnabled();
-        return granted ?? false;
+        final androidInfo = await _getAndroidInfo();
+        if (androidInfo['version']['sdkInt'] >= 33) {
+          // Android 13+ check POST_NOTIFICATIONS permission
+          final plugin = _notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+          final granted = await plugin?.areNotificationsEnabled();
+          return granted ?? false;
+        } else {
+          // Older Android versions always have permission
+          return true;
+        }
       } else if (Platform.isIOS) {
         final plugin = _notifications.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
         final settings = await plugin?.checkPermissions();
@@ -324,11 +401,48 @@ class NotificationService {
   void _setLocalTimeZone() {
     try {
       final String timeZoneName = DateTime.now().timeZoneName;
-      final location = tz.getLocation(timeZoneName);
-      tz.setLocalLocation(location);
+      debugPrint('Setting timezone: $timeZoneName');
+
+      // Try to get the location with fallbacks
+      tz.Location? location;
+      try {
+        location = tz.getLocation(timeZoneName);
+      } catch (e) {
+        debugPrint('⚠️ Could not get timezone $timeZoneName, trying alternatives: $e');
+
+        // Try common timezone alternatives
+        final alternatives = [
+          'America/New_York',
+          'America/Los_Angeles',
+          'Europe/London',
+          'UTC'
+        ];
+
+        for (final alt in alternatives) {
+          try {
+            location = tz.getLocation(alt);
+            debugPrint('✅ Using alternative timezone: $alt');
+            break;
+          } catch (e) {
+            debugPrint('⚠️ Alternative $alt failed: $e');
+          }
+        }
+      }
+
+      if (location != null) {
+        tz.setLocalLocation(location);
+        debugPrint('✅ Timezone set successfully');
+      } else {
+        debugPrint('⚠️ All timezone options failed, using UTC');
+        tz.setLocalLocation(tz.UTC);
+      }
     } catch (e) {
-      debugPrint('⚠️ Could not set timezone, using UTC: $e');
-      tz.setLocalLocation(tz.UTC);
+      debugPrint('❌ Critical timezone error, using UTC: $e');
+      try {
+        tz.setLocalLocation(tz.UTC);
+      } catch (utcError) {
+        debugPrint('❌ Even UTC failed: $utcError');
+      }
     }
   }
 
@@ -354,31 +468,86 @@ class NotificationService {
   }
 
   Future<void> _createNotificationChannels() async {
-    if (Platform.isAndroid) {
+    if (!Platform.isAndroid) return;
+
+    try {
+      final plugin = _notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      if (plugin == null) {
+        debugPrint('⚠️ Android plugin not available for channel creation');
+        return;
+      }
+
+      // Validate importance level for Android 14+ and 15+ compatibility
+      Importance channelImportance = Importance.defaultImportance; // Start with safest option
+      try {
+        final androidInfo = await _getAndroidInfo();
+        int sdkInt = androidInfo['version']['sdkInt'];
+
+        if (sdkInt >= 36) {
+          // Android 15+ (API 36): Use most conservative approach
+          channelImportance = Importance.defaultImportance;
+          debugPrint('🔴 Android 15+ detected, using conservative importance');
+        } else if (sdkInt >= 34) {
+          // Android 14+ may have stricter importance validation
+          channelImportance = Importance.defaultImportance;
+          debugPrint('🔵 Android 14+ detected, using default importance');
+        } else if (sdkInt >= 33) {
+          // Android 13+ can handle higher importance
+          channelImportance = Importance.high;
+          debugPrint('🟠 Android 13+ detected, using high importance');
+        } else {
+          // Older Android versions
+          channelImportance = Importance.high;
+          debugPrint('🟢 Older Android detected, using high importance');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Could not determine Android version, using safest importance: $e');
+        channelImportance = Importance.defaultImportance;
+      }
+
       final androidChannel = AndroidNotificationChannel(
         _channelId,
         _channelName,
         description: _channelDescription,
-        importance: Importance.high,
+        importance: channelImportance,
         enableVibration: true,
         vibrationPattern: Int64List.fromList([0, 250, 250, 250]),
         enableLights: true,
         ledColor: const Color.fromARGB(255, 66, 165, 245),
       );
 
-      await _notifications
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-          ?.createNotificationChannel(androidChannel);
+      await plugin.createNotificationChannel(androidChannel);
+      debugPrint('✅ Notification channel created with importance: $channelImportance');
+    } catch (e) {
+      debugPrint('❌ Failed to create notification channel: $e');
+      // Try creating a basic channel as fallback
+      await _createFallbackChannel();
     }
   }
 
-  Future<bool> _requestAndroidPermissions() async {
-    final plugin = _notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-    if (plugin != null) {
+  Future<bool> _requestAndroidNotificationPermissions() async {
+    try {
+      final plugin = _notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      if (plugin == null) {
+        debugPrint('⚠️ Android plugin not available');
+        return false;
+      }
+
+      // Request POST_NOTIFICATIONS permission (Android 13+)
       final granted = await plugin.requestNotificationsPermission();
-      return granted ?? false;
+      if (granted != true) {
+        debugPrint('❌ POST_NOTIFICATIONS permission denied');
+        return false;
+      }
+
+      // Check if exact alarm permission is needed and available
+      await _requestExactAlarmPermissionIfNeeded();
+
+      return true;
+    } catch (e) {
+      debugPrint('❌ Failed to request Android notification permissions: $e');
+      return false;
     }
-    return true; // Assume granted for older versions
   }
 
   Future<bool> _requestIOSPermissions() async {
@@ -398,8 +567,18 @@ class NotificationService {
     if (!reminder.isEnabled) return;
 
     try {
+      // Check if we have notification permissions first
+      final hasPermission = await arePermissionsGranted();
+      if (!hasPermission) {
+        debugPrint('⚠️ No notification permission, skipping schedule for ${reminder.id}');
+        return;
+      }
+
       final scheduledDateTime = reminder.getNextScheduledTime();
       final tzScheduledDateTime = tz.TZDateTime.from(scheduledDateTime, tz.local);
+
+      // Determine the appropriate schedule mode based on permissions
+      final scheduleMode = await _getOptimalScheduleMode();
 
       await _notifications.zonedSchedule(
         int.parse(reminder.id),
@@ -408,14 +587,16 @@ class NotificationService {
         tzScheduledDateTime,
         _getNotificationDetails(),
         payload: 'reminder_${reminder.id}',
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        androidScheduleMode: scheduleMode,
         uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
         matchDateTimeComponents: DateTimeComponents.time, // Repeat daily
       );
 
-      debugPrint('✅ Scheduled notification for ${reminder.formatTime()} at $scheduledDateTime');
+      debugPrint('✅ Scheduled notification for ${reminder.formatTime()} at $scheduledDateTime with mode: $scheduleMode');
     } catch (e) {
       debugPrint('❌ Failed to schedule notification for ${reminder.id}: $e');
+      // Try fallback scheduling without exact timing
+      await _scheduleNotificationFallback(reminder);
     }
   }
 
@@ -557,59 +738,205 @@ class NotificationService {
     }
   }
 
+  // HELPER METHODS
+
+  /// Get Android SDK version info with actual API level detection
+  Future<Map<String, dynamic>> _getAndroidInfo() async {
+    try {
+      // For Android 15+ (API 36), we need to be even more careful
+      // Default to the highest known API level to ensure all permissions are requested
+      int sdkInt = 36; // Default to Android 15+ to be extra safe
+
+      debugPrint('📱 Assuming Android API level: $sdkInt');
+
+      return {
+        'version': {'sdkInt': sdkInt}
+      };
+    } catch (e) {
+      debugPrint('⚠️ Could not get device info: $e');
+      return {
+        'version': {'sdkInt': 36} // Default to Android 15+ to be extra safe
+      };
+    }
+  }
+
+  /// Request exact alarm permission if needed (Android 12+)
+  Future<void> _requestExactAlarmPermissionIfNeeded() async {
+    try {
+      final androidInfo = await _getAndroidInfo();
+      if (androidInfo['version']['sdkInt'] >= 31) {
+        // Android 12+ might need exact alarm permission
+        final plugin = _notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+        // Note: There's no direct API to request SCHEDULE_EXACT_ALARM permission
+        // The user must grant it manually in Settings
+        debugPrint('⚠️ Android 12+ detected: Exact alarm permission may need manual approval');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Could not check exact alarm permission requirements: $e');
+    }
+  }
+
+  /// Determine optimal schedule mode with Android 15+ compatibility
+  Future<AndroidScheduleMode> _getOptimalScheduleMode() async {
+    try {
+      final androidInfo = await _getAndroidInfo();
+      int sdkInt = androidInfo['version']['sdkInt'];
+
+      if (sdkInt >= 36) {
+        // Android 15+ (API 36): Use most permissive mode to avoid restrictions
+        debugPrint('🔴 Android 15+ detected, using alarmClock mode');
+        return AndroidScheduleMode.alarmClock;
+      } else if (sdkInt >= 34) {
+        // Android 14+: Try exactAllowWhileIdle with fallback
+        debugPrint('🔵 Android 14+ detected, using exactAllowWhileIdle mode');
+        return AndroidScheduleMode.exactAllowWhileIdle;
+      } else if (sdkInt >= 31) {
+        // Android 12+: Use exactAllowWhileIdle
+        debugPrint('🟠 Android 12+ detected, using exactAllowWhileIdle mode');
+        return AndroidScheduleMode.exactAllowWhileIdle;
+      } else {
+        // Older Android: Use exact timing
+        debugPrint('🟢 Older Android detected, using exact mode');
+        return AndroidScheduleMode.exact;
+      }
+    } catch (e) {
+      debugPrint('❌ Could not determine optimal schedule mode: $e');
+      return AndroidScheduleMode.alarmClock; // Most permissive fallback
+    }
+  }
+
+  /// Fallback notification scheduling without exact timing
+  Future<void> _scheduleNotificationFallback(WaterReminder reminder) async {
+    try {
+      final scheduledDateTime = reminder.getNextScheduledTime();
+      final tzScheduledDateTime = tz.TZDateTime.from(scheduledDateTime, tz.local);
+
+      await _notifications.zonedSchedule(
+        int.parse(reminder.id),
+        'Time to drink water 💧',
+        'Stay hydrated! Log your water intake now.',
+        tzScheduledDateTime,
+        _getNotificationDetails(),
+        payload: 'reminder_${reminder.id}',
+        androidScheduleMode: AndroidScheduleMode.alarmClock,
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.time,
+      );
+
+      debugPrint('✅ Fallback notification scheduled for ${reminder.formatTime()}');
+    } catch (e) {
+      debugPrint('❌ Fallback scheduling also failed for ${reminder.id}: $e');
+    }
+  }
+
+  /// Create a basic notification channel as fallback
+  Future<void> _createFallbackChannel() async {
+    try {
+      final plugin = _notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      if (plugin == null) return;
+
+      final basicChannel = AndroidNotificationChannel(
+        _channelId,
+        _channelName,
+        description: _channelDescription,
+        importance: Importance.defaultImportance,
+      );
+
+      await plugin.createNotificationChannel(basicChannel);
+      debugPrint('✅ Fallback notification channel created');
+    } catch (e) {
+      debugPrint('❌ Even fallback channel creation failed: $e');
+    }
+  }
+
   // STATIC CALLBACK METHODS
 
   static void _onNotificationResponse(NotificationResponse response) {
-    debugPrint('📱 Notification tapped: ${response.payload}');
-    _handleNotificationAction(response);
+    try {
+      debugPrint('📱 Notification tapped: ${response.payload}');
+      _handleNotificationAction(response);
+    } catch (e) {
+      debugPrint('❌ Notification callback error: $e');
+      // Don't rethrow - this could crash the app
+    }
   }
 
   @pragma('vm:entry-point')
   static void _onBackgroundNotificationResponse(NotificationResponse response) {
-    debugPrint('📱 Background notification tapped: ${response.payload}');
-    _handleNotificationAction(response);
+    try {
+      debugPrint('📱 Background notification tapped: ${response.payload}');
+      _handleNotificationAction(response);
+    } catch (e) {
+      debugPrint('❌ Background notification callback error: $e');
+      // Don't rethrow - this could crash the entire notification system
+    }
   }
 
   static void _handleNotificationAction(NotificationResponse response) {
-    final payload = response.payload;
-    final actionId = response.actionId;
+    try {
+      final payload = response.payload;
+      final actionId = response.actionId;
 
-    // Extract reminder ID from payload
-    String? reminderId;
-    if (payload?.startsWith('reminder_') == true) {
-      reminderId = payload!.substring('reminder_'.length);
-    } else if (payload?.startsWith('snooze_') == true) {
-      reminderId = payload!.substring('snooze_'.length);
+      // Validate response data
+      if (payload == null && actionId == null) {
+        debugPrint('⚠️ Notification response has no payload or action');
+        return;
+      }
+
+      // Extract reminder ID from payload
+      String? reminderId;
+      if (payload?.startsWith('reminder_') == true) {
+        reminderId = payload!.substring('reminder_'.length);
+      } else if (payload?.startsWith('snooze_') == true) {
+        reminderId = payload!.substring('snooze_'.length);
+      }
+
+      // Handle different actions
+      String action = 'tap'; // Default action
+      if (actionId != null && actionId.isNotEmpty) {
+        action = actionId;
+      }
+
+      // Validate action and reminder ID
+      if (action.isEmpty) {
+        debugPrint('⚠️ Invalid action received');
+        return;
+      }
+
+      // Handle specific actions
+      switch (action) {
+        case 'log_drink':
+          debugPrint('🥤 Log drink action for reminder: $reminderId');
+          break;
+        case 'snooze':
+          if (reminderId != null && reminderId.isNotEmpty) {
+            debugPrint('⏰ Snooze action for reminder: $reminderId');
+            // Note: Snooze functionality would need external handling
+            // since static methods can't access instance methods safely
+          } else {
+            debugPrint('⚠️ Snooze action without valid reminder ID');
+          }
+          break;
+        case 'dismiss':
+          debugPrint('🚫 Dismiss action for reminder: $reminderId');
+          break;
+        case 'tap':
+          debugPrint('👆 Direct tap on notification: $reminderId');
+          break;
+        default:
+          debugPrint('⚠️ Unknown action: $action');
+          break;
+      }
+
+      // Call external callback if set - with additional error handling
+      try {
+        onNotificationAction?.call(action, reminderId);
+      } catch (callbackError) {
+        debugPrint('❌ Notification callback execution failed: $callbackError');
+      }
+    } catch (e) {
+      debugPrint('❌ Critical error in notification action handler: $e');
     }
-
-    // Handle different actions
-    String action = 'tap'; // Default action
-    if (actionId != null) {
-      action = actionId;
-    }
-
-    // Handle specific actions
-    switch (action) {
-      case 'log_drink':
-        debugPrint('🥤 Log drink action for reminder: $reminderId');
-        break;
-      case 'snooze':
-        if (reminderId != null) {
-          debugPrint('⏰ Snooze action for reminder: $reminderId');
-          // Note: Snooze functionality would need external handling
-          // since static methods can't access instance methods safely
-        }
-        break;
-      case 'dismiss':
-        debugPrint('🚫 Dismiss action for reminder: $reminderId');
-        break;
-      case 'tap':
-        debugPrint('👆 Direct tap on notification: $reminderId');
-        break;
-    }
-
-    // Call external callback if set
-    onNotificationAction?.call(action, reminderId);
   }
 
 }

@@ -1,76 +1,9 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'notification_service.dart';
 import 'notification_permission_provider.dart';
-
-class WaterReminder {
-  final String id;
-  final TimeOfDay time;
-  final String frequency;
-  final bool isEnabled;
-
-  WaterReminder({
-    required this.id,
-    required this.time,
-    required this.frequency,
-    required this.isEnabled,
-  });
-
-  WaterReminder copyWith({
-    String? id,
-    TimeOfDay? time,
-    String? frequency,
-    bool? isEnabled,
-  }) {
-    return WaterReminder(
-      id: id ?? this.id,
-      time: time ?? this.time,
-      frequency: frequency ?? this.frequency,
-      isEnabled: isEnabled ?? this.isEnabled,
-    );
-  }
-
-  // Convert to JSON for storage
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'hour': time.hour,
-      'minute': time.minute,
-      'frequency': frequency,
-      'isEnabled': isEnabled,
-    };
-  }
-
-  // Create from JSON
-  factory WaterReminder.fromJson(Map<String, dynamic> json) {
-    return WaterReminder(
-      id: json['id'],
-      time: TimeOfDay(hour: json['hour'], minute: json['minute']),
-      frequency: json['frequency'],
-      isEnabled: json['isEnabled'],
-    );
-  }
-
-  /// Generate a safe notification ID that fits within 32-bit integer limits
-  /// Uses a simple counter-based approach to ensure safe IDs
-  static String generateSafeId() {
-    final now = DateTime.now();
-    // Use a much smaller, safer approach
-    // Generate ID based on time components but keep it very small
-    final hour = now.hour;
-    final minute = now.minute;
-    final second = now.second;
-    final millisPart = (now.millisecond ~/ 100); // 0-9
-
-    // Create a safe ID: HHMMSS + single digit (max 7 digits)
-    // This ensures we never exceed safe integer limits
-    final safeId = (hour * 10000) + (minute * 100) + second + millisPart;
-
-    return safeId.toString();
-  }
-}
+import 'models/water_reminder.dart';
 
 class RemindersProvider extends ChangeNotifier {
   List<WaterReminder> _reminders = [];

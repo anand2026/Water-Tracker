@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show Color;
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -70,6 +71,28 @@ class NotificationService {
 
       _initialized = true;
 
+      // Clear any potentially corrupted notifications on initialization
+      try {
+        final pending = await getPendingNotifications();
+        if (kDebugMode) {
+          print('Found ${pending.length} pending notifications on initialization');
+        }
+        // If we detect issues with pending notifications, clear them
+        for (final notification in pending) {
+          if (notification.payload == null || notification.payload!.isEmpty) {
+            if (kDebugMode) {
+              print('Found notification with null/empty payload, clearing: ${notification.id}');
+            }
+            await cancelNotification(notification.id);
+          }
+        }
+      } catch (pendingError) {
+        if (kDebugMode) {
+          print('Error checking pending notifications, clearing all: $pendingError');
+        }
+        await _clearCorruptedNotifications();
+      }
+
       // Don't auto-request permissions - let user trigger it via enable button
 
       if (kDebugMode) {
@@ -82,6 +105,15 @@ class NotificationService {
       }
       _initialized = false;
       _permissionsGranted = false;
+
+      // Try to clear corrupted notifications even if initialization failed
+      try {
+        await _clearCorruptedNotifications();
+      } catch (clearError) {
+        if (kDebugMode) {
+          print('Error clearing corrupted notifications during failed init: $clearError');
+        }
+      }
     }
   }
 
@@ -253,6 +285,9 @@ class NotificationService {
     }
 
     try {
+      // Ensure payload is never null to prevent serialization issues
+      final safePayload = payload ?? 'water_reminder';
+
       final tzDateTime = tz.TZDateTime.from(scheduledTime, tz.local);
 
       if (kDebugMode) {
@@ -262,7 +297,35 @@ class NotificationService {
         print('  Scheduled for: $scheduledTime');
         print('  TZ DateTime: $tzDateTime');
         print('  Repeating: $repeating');
+        print('  Payload: $safePayload');
       }
+
+      // Create notification details with explicit type safety
+      final notificationDetails = NotificationDetails(
+        android: AndroidNotificationDetails(
+          'water_reminders',
+          'Water Reminders',
+          channelDescription: 'Notifications to remind you to drink water',
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+          enableVibration: true,
+          playSound: true,
+          autoCancel: true,
+          ongoing: false,
+          showWhen: true,
+          // Add additional parameters to ensure proper serialization
+          enableLights: true,
+          ledColor: const Color(0xFF42A5F5),
+          ledOnMs: 1000,
+          ledOffMs: 500,
+        ),
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      );
 
       if (repeating) {
         // For daily repeating notifications
@@ -271,30 +334,11 @@ class NotificationService {
           title,
           body,
           tzDateTime,
-          const NotificationDetails(
-            android: AndroidNotificationDetails(
-              'water_reminders',
-              'Water Reminders',
-              channelDescription: 'Notifications to remind you to drink water',
-              importance: Importance.high,
-              priority: Priority.high,
-              icon: '@mipmap/ic_launcher',
-              enableVibration: true,
-              playSound: true,
-              autoCancel: true,
-              ongoing: false,
-              showWhen: true,
-            ),
-            iOS: DarwinNotificationDetails(
-              presentAlert: true,
-              presentBadge: true,
-              presentSound: true,
-            ),
-          ),
+          notificationDetails,
           uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
           matchDateTimeComponents: DateTimeComponents.time, // Repeat daily at same time
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-          payload: payload,
+          payload: safePayload,
         );
       } else {
         // For one-time notifications
@@ -303,29 +347,10 @@ class NotificationService {
           title,
           body,
           tzDateTime,
-          const NotificationDetails(
-            android: AndroidNotificationDetails(
-              'water_reminders',
-              'Water Reminders',
-              channelDescription: 'Notifications to remind you to drink water',
-              importance: Importance.high,
-              priority: Priority.high,
-              icon: '@mipmap/ic_launcher',
-              enableVibration: true,
-              playSound: true,
-              autoCancel: true,
-              ongoing: false,
-              showWhen: true,
-            ),
-            iOS: DarwinNotificationDetails(
-              presentAlert: true,
-              presentBadge: true,
-              presentSound: true,
-            ),
-          ),
+          notificationDetails,
           uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-          payload: payload,
+          payload: safePayload,
         );
       }
 
@@ -339,6 +364,14 @@ class NotificationService {
     } catch (e) {
       if (kDebugMode) {
         print('Error scheduling notification: $e');
+      }
+      // If there's an error, try to clear potentially corrupted notifications
+      try {
+        await _clearCorruptedNotifications();
+      } catch (clearError) {
+        if (kDebugMode) {
+          print('Error clearing corrupted notifications: $clearError');
+        }
       }
     }
   }
@@ -413,11 +446,14 @@ class NotificationService {
     }
 
     try {
+      // Ensure payload is never null to prevent serialization issues
+      final safePayload = payload ?? 'instant_notification';
+
       await _notifications.show(
         id,
         title,
         body,
-        const NotificationDetails(
+        NotificationDetails(
           android: AndroidNotificationDetails(
             'water_reminders',
             'Water Reminders',
@@ -430,14 +466,19 @@ class NotificationService {
             autoCancel: true,
             ongoing: false,
             showWhen: true,
+            // Add additional parameters to ensure proper serialization
+            enableLights: true,
+            ledColor: const Color(0xFF42A5F5),
+            ledOnMs: 1000,
+            ledOffMs: 500,
           ),
-          iOS: DarwinNotificationDetails(
+          iOS: const DarwinNotificationDetails(
             presentAlert: true,
             presentBadge: true,
             presentSound: true,
           ),
         ),
-        payload: payload,
+        payload: safePayload,
       );
 
       if (kDebugMode) {
@@ -797,20 +838,27 @@ class NotificationService {
 
   // Method to schedule a test notification for 10 seconds from now
   Future<void> scheduleTestNotification() async {
-    final now = DateTime.now();
-    final testTime = now.add(const Duration(seconds: 10));
+    try {
+      final now = DateTime.now();
+      final testTime = now.add(const Duration(seconds: 10));
 
-    await scheduleWaterReminder(
-      id: 9999,
-      title: '🧪 Test Scheduled Notification',
-      body: 'This notification was scheduled for 10 seconds ago!',
-      scheduledTime: testTime,
-      payload: 'test_scheduled',
-      repeating: false,
-    );
+      await scheduleWaterReminder(
+        id: 9999,
+        title: '🧪 Test Scheduled Notification',
+        body: 'This notification was scheduled for 10 seconds ago!',
+        scheduledTime: testTime,
+        payload: 'test_scheduled',
+        repeating: false,
+      );
 
-    if (kDebugMode) {
-      print('Test notification scheduled for $testTime (10 seconds from now)');
+      if (kDebugMode) {
+        print('Test notification scheduled for $testTime (10 seconds from now)');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error in scheduleTestNotification: $e');
+      }
+      // In release mode, silently handle the error without crashing
     }
   }
 
@@ -878,6 +926,7 @@ class NotificationService {
       if (kDebugMode) {
         print('Error opening app settings: $e');
       }
+      // In release mode, silently return false instead of crashing
       return false;
     }
   }
@@ -901,6 +950,7 @@ class NotificationService {
       if (kDebugMode) {
         print('Error checking battery optimization: $e');
       }
+      // In release mode, assume false and don't crash
       return false;
     }
   }
@@ -924,6 +974,7 @@ class NotificationService {
       if (kDebugMode) {
         print('Error requesting battery optimization exemption: $e');
       }
+      // In release mode, return false without crashing
       return false;
     }
   }
@@ -947,7 +998,49 @@ class NotificationService {
       if (kDebugMode) {
         print('Error opening battery optimization settings: $e');
       }
+      // In release mode, return false without crashing
       return false;
+    }
+  }
+
+  // Method to clear potentially corrupted notifications
+  Future<void> _clearCorruptedNotifications() async {
+    try {
+      if (kDebugMode) {
+        print('Clearing potentially corrupted notifications...');
+      }
+
+      // Cancel all existing notifications to prevent serialization issues
+      await _notifications.cancelAll();
+
+      if (kDebugMode) {
+        print('All notifications cleared successfully');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error clearing notifications: $e');
+      }
+      // If even clearing fails, we'll just continue
+    }
+  }
+
+  // Method to safely clear all notifications and reset
+  Future<void> clearAllNotificationsAndReset() async {
+    try {
+      await _clearCorruptedNotifications();
+
+      // Clear any stored notification preferences that might be corrupted
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('scheduled_notifications');
+      await prefs.remove('notification_ids');
+
+      if (kDebugMode) {
+        print('Notification system reset completed');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error during notification reset: $e');
+      }
     }
   }
 }
