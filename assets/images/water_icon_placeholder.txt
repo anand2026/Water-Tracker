@@ -1,0 +1,11 @@
+IMPORTANT: Replace this with your water_icon.png file
+
+The water icon should be:
+- Named: water_icon.png
+- Location: assets/images/water_icon.png
+- Format: PNG
+- Size: At least 1024x1024 pixels
+- High resolution for best quality
+
+Once you place the water_icon.png file here, run:
+flutter pub run flutter_launcher_icons:main

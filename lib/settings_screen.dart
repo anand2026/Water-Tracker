@@ -1163,7 +1163,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             Icon(Icons.help_outline, color: Color(0xFF42A5F5)),
             SizedBox(width: 8),
-            Text('Notification Troubleshooting'),
+            Expanded(
+              child: Text(
+                'Notification Help',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 18),
+              ),
+            ),
           ],
         ),
         content: SingleChildScrollView(
@@ -1231,17 +1238,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _testNotification(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF42A5F5),
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Test Again'),
           ),
         ],
       ),
